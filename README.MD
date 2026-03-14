@@ -2,12 +2,26 @@
 
 MCP server that gives Claude the ability to create 3D-printable CAD models using build123d. Outputs STL/STEP files ready for slicing in Bambu Studio.
 
-## Quick Setup (macOS)
+## Quick Setup
+
+### macOS
 
 ```bash
 git clone https://github.com/yourusername/3dp-mcp-server.git
 cd 3dp-mcp-server
 bash setup.sh
+```
+
+### Windows 11
+
+**Option A** — Double-click `setup.bat` in File Explorer.
+
+**Option B** — Run from PowerShell:
+
+```powershell
+git clone https://github.com/yourusername/3dp-mcp-server.git
+cd 3dp-mcp-server
+powershell -ExecutionPolicy Bypass -File setup.ps1
 ```
 
 That's it. Start a new Claude Code session and ask it to create a model.
@@ -74,12 +88,21 @@ That's it. Start a new Claude Code session and ask it to create a model.
 ## Requirements
 
 - Python 3.11+
-- macOS (tested on Apple Silicon)
+- macOS (tested on Apple Silicon) or Windows 11
 - Claude Code CLI
 
 ## Uninstall
 
+### macOS
+
 ```bash
 claude mcp remove 3dp-mcp-server -s user
 rm -rf 3dp-mcp-server
+```
+
+### Windows
+
+```powershell
+claude mcp remove 3dp-mcp-server -s user
+Remove-Item -Recurse -Force 3dp-mcp-server
 ```

@@ -22,6 +22,14 @@ That's it. Start a new Claude Code session and ask it to create a model.
 | `analyze_printability` | Watertight check, thin wall detection, build volume fit |
 | `list_models` | List all models in current session |
 | `get_model_code` | Retrieve the code used to create a model |
+| `transform_model` | Scale, rotate, mirror, or translate a model |
+| `import_model` | Import STL or STEP file from disk |
+| `estimate_print` | Estimate filament usage, weight, and cost |
+| `combine_models` | Boolean union, subtract, or intersect two models |
+| `shell_model` | Hollow out a model with optional open faces |
+| `split_model` | Split a model along a plane |
+| `section_view` | Generate 2D cross-section as SVG |
+| `export_drawing` | Generate multi-view 2D technical drawing as SVG |
 
 ## Requirements
 

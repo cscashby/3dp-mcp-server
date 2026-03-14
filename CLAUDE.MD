@@ -4,12 +4,27 @@ MCP server for 3D-printable CAD modeling with build123d, targeting STL export fo
 
 ## MCP Tools Available
 
+### Core Tools
 - `create_model(name, code)` — Execute build123d code, auto-exports STL. Code must assign final shape to `result`.
 - `export_model(name, format)` — Export to "stl", "step", or "3mf"
 - `measure_model(name)` — Bounding box, volume in mm
 - `analyze_printability(name)` — Watertight check, volume validation, thin wall detection
 - `list_models()` — All models in current session
 - `get_model_code(name)` — Retrieve the code used to create a model
+
+### Transform & Combine Tools
+- `transform_model(name, source_name, operations)` — Scale, rotate, mirror, or translate a model. Operations is a JSON string with keys like `{"scale": 1.5}`, `{"rotate": [0,0,45]}`, `{"mirror": "XY"}`, `{"translate": [10,0,5]}`.
+- `combine_models(name, model_a, model_b, operation)` — Boolean union, subtract, or intersect two models.
+- `import_model(name, file_path)` — Import an STL or STEP file from disk.
+
+### Modification Tools
+- `shell_model(name, source_name, thickness, open_faces)` — Hollow out a model with optional open faces (e.g. `["top"]`).
+- `split_model(name, source_name, plane, keep)` — Split a model along XY/XZ/YZ plane. Keep "above", "below", or "both".
+
+### Analysis & Export Tools
+- `estimate_print(name, infill_percent, layer_height, material)` — Estimate filament usage, weight, and cost. Supports PLA, PETG, ABS, TPU, ASA.
+- `section_view(name, source_name, plane, offset)` — Generate a 2D cross-section exported as SVG.
+- `export_drawing(name, views, page_size)` — Generate multi-view 2D technical drawing as SVG.
 
 ## build123d Coding Patterns
 

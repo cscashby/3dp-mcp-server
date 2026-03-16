@@ -410,7 +410,7 @@ def transform_model(name: str, source_name: str, operations: str) -> str:
         return json.dumps({"success": False, "error": f"Model '{source_name}' not found. Available: {list(_models.keys())}"})
 
     try:
-        from build123d import Mirror, Plane as B3dPlane, Pos, Rot
+        from build123d import Plane as B3dPlane, Pos, Rot
 
         shape = _models[source_name]["shape"]
         ops = json.loads(operations)
@@ -432,7 +432,7 @@ def transform_model(name: str, source_name: str, operations: str) -> str:
                 mirror_plane = plane_map.get(op["mirror"].upper())
                 if mirror_plane is None:
                     return json.dumps({"success": False, "error": f"Unknown mirror plane: {op['mirror']}. Use XY, XZ, or YZ."})
-                shape = Mirror(about=mirror_plane) * shape
+                shape = shape.mirror(mirror_plane)
             if "translate" in op:
                 tx, ty, tz = op["translate"]
                 shape = Pos(tx, ty, tz) * shape

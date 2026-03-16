@@ -10,6 +10,7 @@ Your code must assign the final shape to a variable called `result`. The import 
 |-----------|------|---------|-------------|
 | `name` | string | *required* | Unique name for the model (used to reference it in other tools) |
 | `code` | string | *required* | build123d Python code. Must assign final shape to `result` |
+| `final` | bool | `true` | Whether this is a final deliverable model. Set to `false` for interim parts that will be combined or transformed into a final model — they stay on local disk only and are not uploaded to cloud storage. |
 
 **Example usage:**
 
@@ -38,6 +39,7 @@ Your code must assign the final shape to a variable called `result`. The import 
 - Always assign your final geometry to `result`.
 - You can use any build123d API: `BuildPart`, `BuildSketch`, `Extrude`, `Fillet`, `Chamfer`, etc.
 - If your code errors, the full traceback is returned so you can fix and retry.
+- When building multi-part models (e.g. a bolt = shaft + head), set `final=false` on the interim parts and only `final=true` (or omit it) on the combined result.
 
 ---
 

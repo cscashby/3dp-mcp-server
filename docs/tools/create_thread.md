@@ -13,6 +13,7 @@ Create an ISO metric thread with real helical geometry using bd_warehouse. Suppo
 | `hand` | string | `"right"` | Thread direction: `"right"` or `"left"` |
 | `end_finishes` | string | `'["fade","square"]'` | JSON list of [start, end] finish: `"raw"`, `"fade"`, `"square"`, `"chamfer"` |
 | `simple` | bool | `false` | Simplified geometry (faster, less detail) |
+| `final` | bool | `true` | Whether this is a final deliverable model. Set to `false` for interim parts that will be combined into a final model — they stay on local disk only and are not uploaded to cloud storage. |
 
 **Thread specifications:**
 
@@ -60,10 +61,10 @@ Create an ISO metric thread with real helical geometry using bd_warehouse. Suppo
 
 **Creating a complete bolt:**
 
-1. `create_thread(name="shaft", thread_spec="M3", length=20)` — threaded shaft
-2. `create_model(name="head", code="result = Cylinder(2.75, 3)")` — bolt head
+1. `create_thread(name="shaft", thread_spec="M3", length=20, final=false)` — threaded shaft (interim)
+2. `create_model(name="head", code="result = Cylinder(2.75, 3)", final=false)` — bolt head (interim)
 3. `transform_model(name="head_pos", source="head", operations='{"translate":[0,0,20]}')` — position head
-4. `combine_models(name="m3_bolt", model_a="shaft", model_b="head_pos", operation="union")` — join
+4. `combine_models(name="m3_bolt", model_a="shaft", model_b="head_pos", operation="union")` — final model (uploaded)
 
 **Tips:**
 - Use `external=true` for bolts and screws, `external=false` for nut threads.

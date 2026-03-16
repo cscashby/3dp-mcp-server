@@ -557,7 +557,7 @@ def estimate_print(name: str, infill_percent: float = 15.0, layer_height: float 
 
 
 @mcp.tool()
-def combine_models(name: str, model_a: str, model_b: str, operation: str = "union") -> str:
+def combine_models(name: str, model_a: str, model_b: str, operation: str = "union", final: bool = True) -> str:
     """Boolean combine two loaded models: union, subtract, or intersect.
 
     Args:
@@ -565,6 +565,9 @@ def combine_models(name: str, model_a: str, model_b: str, operation: str = "unio
         model_a: Name of the first model
         model_b: Name of the second model
         operation: Boolean operation - "union", "subtract", or "intersect"
+        final: Whether this is a final deliverable model (default True). When True,
+               exports STL/STEP and uploads to cloud storage. Set to False for interim
+               combinations that will be further modified.
     """
     for m in (model_a, model_b):
         if m not in _models:
@@ -587,7 +590,24 @@ def combine_models(name: str, model_a: str, model_b: str, operation: str = "unio
         entry = _shape_to_model_entry(result, code=f"{model_a} {op} {model_b}")
         _models[name] = entry
 
-        return json.dumps({
+        # Export STL and STEP
+        model_dir = os.path.join(OUTPUT_DIR, name)
+        os.makedirs(model_dir, exist_ok=True)
+        from build123d import export_stl, export_step
+        stl_path = os.path.join(model_dir, f"{name}.stl")
+        step_path = os.path.join(model_dir, f"{name}.step")
+        export_stl(result, stl_path)
+        export_step(result, step_path)
+
+        # Upload to cloud storage only for final models
+        artifacts = []
+        if final:
+            for path, fname in [(stl_path, f"{name}.stl"), (step_path, f"{name}.step")]:
+                a = _upload_to_gcs(path, fname)
+                if a:
+                    artifacts.append(a)
+
+        response = {
             "success": True,
             "name": name,
             "operation": op,
@@ -595,7 +615,12 @@ def combine_models(name: str, model_a: str, model_b: str, operation: str = "unio
             "model_b": model_b,
             "bbox": entry["bbox"],
             "volume": entry["volume"],
-        }, indent=2)
+            "outputs": {"stl": stl_path, "step": step_path},
+        }
+        if artifacts:
+            response["artifacts"] = artifacts
+
+        return json.dumps(response, indent=2)
 
     except Exception as e:
         return json.dumps({"success": False, "error": str(e), "traceback": traceback.format_exc()}, indent=2)

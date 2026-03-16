@@ -10,6 +10,7 @@ Perform a Boolean operation between two models.
 | `model_a` | string | *required* | Name of the first model |
 | `model_b` | string | *required* | Name of the second model |
 | `operation` | string | `"union"` | Boolean operation: `"union"`, `"subtract"`, or `"intersect"` |
+| `final` | bool | `true` | Whether this is a final deliverable model. When `true`, exports STL/STEP and uploads to cloud storage. Set to `false` for interim combinations that will be further modified. |
 
 **Example usage:**
 

@@ -87,6 +87,35 @@ _ISO_THREAD_TABLE = {
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
+def _export_and_upload(name: str, shape, final: bool = True) -> dict:
+    """Export a shape to STL+STEP and optionally upload to cloud storage.
+
+    Returns a dict with 'outputs' and optionally 'artifacts' keys,
+    ready to merge into a tool response.
+    """
+    from build123d import export_stl, export_step
+
+    model_dir = os.path.join(OUTPUT_DIR, name)
+    os.makedirs(model_dir, exist_ok=True)
+    stl_path = os.path.join(model_dir, f"{name}.stl")
+    step_path = os.path.join(model_dir, f"{name}.step")
+    export_stl(shape, stl_path)
+    export_step(shape, step_path)
+
+    result = {"outputs": {"stl": stl_path, "step": step_path}}
+
+    if final:
+        artifacts = []
+        for path, fname in [(stl_path, f"{name}.stl"), (step_path, f"{name}.step")]:
+            a = _upload_to_gcs(path, fname)
+            if a:
+                artifacts.append(a)
+        if artifacts:
+            result["artifacts"] = artifacts
+
+    return result
+
+
 def _shape_to_model_entry(shape, code: str = "") -> dict:
     """Convert a build123d shape into a model entry dict with bbox and volume."""
     bb = shape.bounding_box()
@@ -191,32 +220,15 @@ def create_model(name: str, code: str, final: bool = True) -> str:
         result = _run_build123d_code(code)
         _models[name] = result
 
-        model_dir = os.path.join(OUTPUT_DIR, name)
-        os.makedirs(model_dir, exist_ok=True)
-
-        from build123d import export_stl, export_step
-        stl_path = os.path.join(model_dir, f"{name}.stl")
-        step_path = os.path.join(model_dir, f"{name}.step")
-        export_stl(result["shape"], stl_path)
-        export_step(result["shape"], step_path)
-
-        # Upload to cloud storage only for final models
-        artifacts = []
-        if final:
-            for path, fname in [(stl_path, f"{name}.stl"), (step_path, f"{name}.step")]:
-                a = _upload_to_gcs(path, fname)
-                if a:
-                    artifacts.append(a)
+        exports = _export_and_upload(name, result["shape"], final)
 
         response = {
             "success": True,
             "name": name,
             "bbox": result["bbox"],
             "volume": result["volume"],
-            "outputs": {"stl": stl_path, "step": step_path},
         }
-        if artifacts:
-            response["artifacts"] = artifacts
+        response.update(exports)
 
         return json.dumps(response, indent=2)
 
@@ -395,7 +407,7 @@ def get_model_code(name: str) -> str:
 
 
 @mcp.tool()
-def transform_model(name: str, source_name: str, operations: str) -> str:
+def transform_model(name: str, source_name: str, operations: str, final: bool = True) -> str:
     """Scale, rotate, mirror, or translate a loaded model. Apply operations in order.
 
     Args:
@@ -440,20 +452,25 @@ def transform_model(name: str, source_name: str, operations: str) -> str:
         entry = _shape_to_model_entry(shape, code=f"transform of {source_name}: {operations}")
         _models[name] = entry
 
-        return json.dumps({
+        exports = _export_and_upload(name, shape, final)
+
+        response = {
             "success": True,
             "name": name,
             "source": source_name,
             "bbox": entry["bbox"],
             "volume": entry["volume"],
-        }, indent=2)
+        }
+        response.update(exports)
+
+        return json.dumps(response, indent=2)
 
     except Exception as e:
         return json.dumps({"success": False, "error": str(e), "traceback": traceback.format_exc()}, indent=2)
 
 
 @mcp.tool()
-def import_model(name: str, file_path: str) -> str:
+def import_model(name: str, file_path: str, final: bool = True) -> str:
     """Import an STL or STEP file from disk into the server as a loaded model.
 
     Args:
@@ -474,13 +491,18 @@ def import_model(name: str, file_path: str) -> str:
         entry = _shape_to_model_entry(shape, code=f"imported from {file_path}")
         _models[name] = entry
 
-        return json.dumps({
+        exports = _export_and_upload(name, shape, final)
+
+        response = {
             "success": True,
             "name": name,
             "file": file_path,
             "bbox": entry["bbox"],
             "volume": entry["volume"],
-        }, indent=2)
+        }
+        response.update(exports)
+
+        return json.dumps(response, indent=2)
 
     except Exception as e:
         return json.dumps({"success": False, "error": str(e), "traceback": traceback.format_exc()}, indent=2)
@@ -590,22 +612,7 @@ def combine_models(name: str, model_a: str, model_b: str, operation: str = "unio
         entry = _shape_to_model_entry(result, code=f"{model_a} {op} {model_b}")
         _models[name] = entry
 
-        # Export STL and STEP
-        model_dir = os.path.join(OUTPUT_DIR, name)
-        os.makedirs(model_dir, exist_ok=True)
-        from build123d import export_stl, export_step
-        stl_path = os.path.join(model_dir, f"{name}.stl")
-        step_path = os.path.join(model_dir, f"{name}.step")
-        export_stl(result, stl_path)
-        export_step(result, step_path)
-
-        # Upload to cloud storage only for final models
-        artifacts = []
-        if final:
-            for path, fname in [(stl_path, f"{name}.stl"), (step_path, f"{name}.step")]:
-                a = _upload_to_gcs(path, fname)
-                if a:
-                    artifacts.append(a)
+        exports = _export_and_upload(name, result, final)
 
         response = {
             "success": True,
@@ -615,10 +622,8 @@ def combine_models(name: str, model_a: str, model_b: str, operation: str = "unio
             "model_b": model_b,
             "bbox": entry["bbox"],
             "volume": entry["volume"],
-            "outputs": {"stl": stl_path, "step": step_path},
         }
-        if artifacts:
-            response["artifacts"] = artifacts
+        response.update(exports)
 
         return json.dumps(response, indent=2)
 
@@ -627,7 +632,7 @@ def combine_models(name: str, model_a: str, model_b: str, operation: str = "unio
 
 
 @mcp.tool()
-def shell_model(name: str, source_name: str, thickness: float = 2.0, open_faces: str = "[]") -> str:
+def shell_model(name: str, source_name: str, thickness: float = 2.0, open_faces: str = "[]", final: bool = True) -> str:
     """Hollow out a model, optionally leaving faces open.
 
     Args:
@@ -650,7 +655,9 @@ def shell_model(name: str, source_name: str, thickness: float = 2.0, open_faces:
         entry = _shape_to_model_entry(result, code=f"shell of {source_name}, thickness={thickness}")
         _models[name] = entry
 
-        return json.dumps({
+        exports = _export_and_upload(name, result, final)
+
+        response = {
             "success": True,
             "name": name,
             "source": source_name,
@@ -658,14 +665,17 @@ def shell_model(name: str, source_name: str, thickness: float = 2.0, open_faces:
             "open_faces": faces_to_open,
             "bbox": entry["bbox"],
             "volume": entry["volume"],
-        }, indent=2)
+        }
+        response.update(exports)
+
+        return json.dumps(response, indent=2)
 
     except Exception as e:
         return json.dumps({"success": False, "error": str(e), "traceback": traceback.format_exc()}, indent=2)
 
 
 @mcp.tool()
-def split_model(name: str, source_name: str, plane: str = "XY", keep: str = "both") -> str:
+def split_model(name: str, source_name: str, plane: str = "XY", keep: str = "both", final: bool = True) -> str:
     """Split a model along a plane.
 
     Args:
@@ -718,14 +728,18 @@ def split_model(name: str, source_name: str, plane: str = "XY", keep: str = "bot
             above_entry = _shape_to_model_entry(above_shape, code=f"split {source_name} above {plane}")
             result_name = f"{name}_above" if keep == "both" else name
             _models[result_name] = above_entry
+            exports = _export_and_upload(result_name, above_shape, final)
             results[result_name] = {"bbox": above_entry["bbox"], "volume": above_entry["volume"]}
+            results[result_name].update(exports)
 
         if keep in ("below", "both"):
             below_shape = shape & below_box
             below_entry = _shape_to_model_entry(below_shape, code=f"split {source_name} below {plane}")
             result_name = f"{name}_below" if keep == "both" else name
             _models[result_name] = below_entry
+            exports = _export_and_upload(result_name, below_shape, final)
             results[result_name] = {"bbox": below_entry["bbox"], "volume": below_entry["volume"]}
+            results[result_name].update(exports)
 
         return json.dumps({
             "success": True,
@@ -965,7 +979,7 @@ def suggest_orientation(name: str) -> str:
 # ── Tier 2: Utility ──────────────────────────────────────────────────────────
 
 @mcp.tool()
-def shrinkage_compensation(name: str, source_name: str, material: str = "PLA") -> str:
+def shrinkage_compensation(name: str, source_name: str, material: str = "PLA", final: bool = True) -> str:
     """Scale a model to compensate for material shrinkage after printing.
 
     Args:
@@ -990,7 +1004,9 @@ def shrinkage_compensation(name: str, source_name: str, material: str = "PLA") -
         entry = _shape_to_model_entry(compensated, code=f"shrinkage compensation of {source_name} for {mat} (×{factor:.5f})")
         _models[name] = entry
 
-        return json.dumps({
+        exports = _export_and_upload(name, compensated, final)
+
+        response = {
             "success": True,
             "name": name,
             "source": source_name,
@@ -999,14 +1015,17 @@ def shrinkage_compensation(name: str, source_name: str, material: str = "PLA") -
             "scale_factor": round(factor, 5),
             "original_bbox": _models[source_name]["bbox"],
             "compensated_bbox": entry["bbox"],
-        }, indent=2)
+        }
+        response.update(exports)
+
+        return json.dumps(response, indent=2)
 
     except Exception as e:
         return json.dumps({"success": False, "error": str(e), "traceback": traceback.format_exc()}, indent=2)
 
 
 @mcp.tool()
-def pack_models(name: str, model_names: str, padding: float = 5.0) -> str:
+def pack_models(name: str, model_names: str, padding: float = 5.0, final: bool = True) -> str:
     """Arrange multiple models compactly on the build plate for batch printing.
 
     Args:
@@ -1030,6 +1049,8 @@ def pack_models(name: str, model_names: str, padding: float = 5.0) -> str:
         entry = _shape_to_model_entry(compound, code=f"pack of {names}")
         _models[name] = entry
 
+        exports = _export_and_upload(name, compound, final)
+
         positions = []
         for i, s in enumerate(packed):
             bb = s.bounding_box()
@@ -1039,13 +1060,16 @@ def pack_models(name: str, model_names: str, padding: float = 5.0) -> str:
                            round(bb.min.Y + (bb.max.Y - bb.min.Y) / 2, 1)],
             })
 
-        return json.dumps({
+        response = {
             "success": True,
             "name": name,
             "packed_count": len(names),
             "positions": positions,
             "bbox": entry["bbox"],
-        }, indent=2)
+        }
+        response.update(exports)
+
+        return json.dumps(response, indent=2)
 
     except Exception as e:
         return json.dumps({"success": False, "error": str(e), "traceback": traceback.format_exc()}, indent=2)
@@ -1112,7 +1136,7 @@ def convert_format(input_path: str, output_path: str) -> str:
 @mcp.tool()
 def add_text(name: str, source_name: str, text: str, face: str = "top",
              font_size: float = 10.0, depth: float = 1.0, font: str = "Arial",
-             emboss: bool = True) -> str:
+             emboss: bool = True, final: bool = True) -> str:
     """Emboss or deboss text onto a model face.
 
     Args:
@@ -1156,7 +1180,9 @@ def add_text(name: str, source_name: str, text: str, face: str = "top",
         entry = _shape_to_model_entry(result, code=f"{'emboss' if emboss else 'deboss'} '{text}' on {face} of {source_name}")
         _models[name] = entry
 
-        return json.dumps({
+        exports = _export_and_upload(name, result, final)
+
+        response = {
             "success": True,
             "name": name,
             "source": source_name,
@@ -1166,7 +1192,10 @@ def add_text(name: str, source_name: str, text: str, face: str = "top",
             "depth_mm": depth,
             "bbox": entry["bbox"],
             "volume": entry["volume"],
-        }, indent=2)
+        }
+        response.update(exports)
+
+        return json.dumps(response, indent=2)
 
     except Exception as e:
         return json.dumps({"success": False, "error": str(e), "traceback": traceback.format_exc()}, indent=2)
@@ -1174,7 +1203,7 @@ def add_text(name: str, source_name: str, text: str, face: str = "top",
 
 @mcp.tool()
 def create_threaded_hole(name: str, source_name: str, position: str, thread_spec: str = "M3",
-                          depth: float = 10.0, insert: bool = False) -> str:
+                          depth: float = 10.0, insert: bool = False, final: bool = True) -> str:
     """Add a threaded or heat-set insert hole to a model.
 
     Args:
@@ -1207,7 +1236,9 @@ def create_threaded_hole(name: str, source_name: str, position: str, thread_spec
         entry = _shape_to_model_entry(result, code=f"{spec} {'insert' if insert else 'threaded'} hole at {pos}")
         _models[name] = entry
 
-        return json.dumps({
+        exports = _export_and_upload(name, result, final)
+
+        response = {
             "success": True,
             "name": name,
             "source": source_name,
@@ -1218,7 +1249,10 @@ def create_threaded_hole(name: str, source_name: str, position: str, thread_spec
             "position": pos,
             "bbox": entry["bbox"],
             "volume": entry["volume"],
-        }, indent=2)
+        }
+        response.update(exports)
+
+        return json.dumps(response, indent=2)
 
     except Exception as e:
         return json.dumps({"success": False, "error": str(e), "traceback": traceback.format_exc()}, indent=2)
@@ -1273,21 +1307,7 @@ def create_thread(name: str, thread_spec: str = "M3", length: float = 10.0,
         entry = _shape_to_model_entry(result, code=f"{spec} {'external' if external else 'internal'} thread, {length}mm, {hand}-hand")
         _models[name] = entry
 
-        # Auto-export STL and STEP
-        model_dir = os.path.join(OUTPUT_DIR, name)
-        os.makedirs(model_dir, exist_ok=True)
-        from build123d import export_stl, export_step
-        stl_path = os.path.join(model_dir, f"{name}.stl")
-        step_path = os.path.join(model_dir, f"{name}.step")
-        export_stl(result, stl_path)
-        export_step(result, step_path)
-
-        artifacts = []
-        if final:
-            for path, fname in [(stl_path, f"{name}.stl"), (step_path, f"{name}.step")]:
-                a = _upload_to_gcs(path, fname)
-                if a:
-                    artifacts.append(a)
+        exports = _export_and_upload(name, result, final)
 
         response = {
             "success": True,
@@ -1301,10 +1321,8 @@ def create_thread(name: str, thread_spec: str = "M3", length: float = 10.0,
             "simple": simple,
             "bbox": entry["bbox"],
             "volume": entry["volume"],
-            "outputs": {"stl": stl_path, "step": step_path},
         }
-        if artifacts:
-            response["artifacts"] = artifacts
+        response.update(exports)
 
         return json.dumps(response, indent=2)
 
@@ -1316,7 +1334,7 @@ def create_thread(name: str, thread_spec: str = "M3", length: float = 10.0,
 
 @mcp.tool()
 def create_enclosure(name: str, inner_width: float, inner_depth: float, inner_height: float,
-                      wall: float = 2.0, lid_type: str = "snap", features: str = "[]") -> str:
+                      wall: float = 2.0, lid_type: str = "snap", features: str = "[]", final: bool = True) -> str:
     """Generate a parametric electronics enclosure with lid.
 
     Creates two models: name_body and name_lid.
@@ -1408,10 +1426,18 @@ def create_enclosure(name: str, inner_width: float, inner_depth: float, inner_he
         _models[f"{name}_body"] = body_entry
         _models[f"{name}_lid"] = lid_entry
 
+        exports_body = _export_and_upload(f"{name}_body", body, final)
+        exports_lid = _export_and_upload(f"{name}_lid", lid, final)
+
+        body_info = {"name": f"{name}_body", "bbox": body_entry["bbox"], "volume": body_entry["volume"]}
+        body_info.update(exports_body)
+        lid_info = {"name": f"{name}_lid", "bbox": lid_entry["bbox"], "volume": lid_entry["volume"]}
+        lid_info.update(exports_lid)
+
         return json.dumps({
             "success": True,
-            "body": {"name": f"{name}_body", "bbox": body_entry["bbox"], "volume": body_entry["volume"]},
-            "lid": {"name": f"{name}_lid", "bbox": lid_entry["bbox"], "volume": lid_entry["volume"]},
+            "body": body_info,
+            "lid": lid_info,
             "inner_dimensions": [inner_width, inner_depth, inner_height],
             "outer_dimensions": [ow, od, oh],
             "wall_thickness": wall,
@@ -1506,7 +1532,7 @@ def split_model_by_color(name: str, source_name: str, assignments: str) -> str:
 # ── Tier 3: Parametric Components ─────────────────────────────────────────────
 
 @mcp.tool()
-def create_snap_fit(name: str, snap_type: str = "cantilever", params: str = "{}") -> str:
+def create_snap_fit(name: str, snap_type: str = "cantilever", params: str = "{}", final: bool = True) -> str:
     """Generate a snap-fit joint component for assembly.
 
     Args:
@@ -1542,14 +1568,19 @@ def create_snap_fit(name: str, snap_type: str = "cantilever", params: str = "{}"
         entry = _shape_to_model_entry(result, code=f"snap_fit {snap_type}")
         _models[name] = entry
 
-        return json.dumps({
+        exports = _export_and_upload(name, result, final)
+
+        response = {
             "success": True,
             "name": name,
             "type": snap_type,
             "params": p,
             "bbox": entry["bbox"],
             "volume": entry["volume"],
-        }, indent=2)
+        }
+        response.update(exports)
+
+        return json.dumps(response, indent=2)
 
     except Exception as e:
         return json.dumps({"success": False, "error": str(e), "traceback": traceback.format_exc()}, indent=2)
@@ -1557,7 +1588,7 @@ def create_snap_fit(name: str, snap_type: str = "cantilever", params: str = "{}"
 
 @mcp.tool()
 def create_gear(name: str, module: float = 1.0, teeth: int = 20, pressure_angle: float = 20.0,
-                thickness: float = 5.0, bore: float = 0.0) -> str:
+                thickness: float = 5.0, bore: float = 0.0, final: bool = True) -> str:
     """Generate an involute spur gear.
 
     Args:
@@ -1634,7 +1665,9 @@ def create_gear(name: str, module: float = 1.0, teeth: int = 20, pressure_angle:
         entry = _shape_to_model_entry(result, code=f"spur gear m={module} z={teeth} pa={pressure_angle}")
         _models[name] = entry
 
-        return json.dumps({
+        exports = _export_and_upload(name, result, final)
+
+        response = {
             "success": True,
             "name": name,
             "module": module,
@@ -1646,14 +1679,17 @@ def create_gear(name: str, module: float = 1.0, teeth: int = 20, pressure_angle:
             "bore": bore,
             "bbox": entry["bbox"],
             "volume": entry["volume"],
-        }, indent=2)
+        }
+        response.update(exports)
+
+        return json.dumps(response, indent=2)
 
     except Exception as e:
         return json.dumps({"success": False, "error": str(e), "traceback": traceback.format_exc()}, indent=2)
 
 
 @mcp.tool()
-def create_hinge(name: str, hinge_type: str = "pin", params: str = "{}") -> str:
+def create_hinge(name: str, hinge_type: str = "pin", params: str = "{}", final: bool = True) -> str:
     """Generate a two-part hinge assembly.
 
     Creates two models: name_leaf_a and name_leaf_b.
@@ -1706,10 +1742,18 @@ def create_hinge(name: str, hinge_type: str = "pin", params: str = "{}") -> str:
         _models[f"{name}_leaf_a"] = entry_a
         _models[f"{name}_leaf_b"] = entry_b
 
+        exports_a = _export_and_upload(f"{name}_leaf_a", leaf_a, final)
+        exports_b = _export_and_upload(f"{name}_leaf_b", leaf_b, final)
+
+        leaf_a_info = {"name": f"{name}_leaf_a", "bbox": entry_a["bbox"], "volume": entry_a["volume"]}
+        leaf_a_info.update(exports_a)
+        leaf_b_info = {"name": f"{name}_leaf_b", "bbox": entry_b["bbox"], "volume": entry_b["volume"]}
+        leaf_b_info.update(exports_b)
+
         return json.dumps({
             "success": True,
-            "leaf_a": {"name": f"{name}_leaf_a", "bbox": entry_a["bbox"], "volume": entry_a["volume"]},
-            "leaf_b": {"name": f"{name}_leaf_b", "bbox": entry_b["bbox"], "volume": entry_b["volume"]},
+            "leaf_a": leaf_a_info,
+            "leaf_b": leaf_b_info,
             "params": {"width": width, "leaf_length": leaf_len, "pin_diameter": pin_d,
                        "barrel_count": barrel_count, "clearance": clearance},
         }, indent=2)
@@ -1720,7 +1764,7 @@ def create_hinge(name: str, hinge_type: str = "pin", params: str = "{}") -> str:
 
 @mcp.tool()
 def create_dovetail(name: str, dovetail_type: str = "male", width: float = 20.0, height: float = 10.0,
-                     depth: float = 15.0, angle: float = 10.0, clearance: float = 0.2) -> str:
+                     depth: float = 15.0, angle: float = 10.0, clearance: float = 0.2, final: bool = True) -> str:
     """Generate a dovetail joint (male or female) for multi-part assemblies.
 
     Args:
@@ -1767,7 +1811,9 @@ def create_dovetail(name: str, dovetail_type: str = "male", width: float = 20.0,
         entry = _shape_to_model_entry(result, code=f"dovetail {dovetail_type} {width}x{height}x{depth}")
         _models[name] = entry
 
-        return json.dumps({
+        exports = _export_and_upload(name, result, final)
+
+        response = {
             "success": True,
             "name": name,
             "type": dovetail_type,
@@ -1778,7 +1824,10 @@ def create_dovetail(name: str, dovetail_type: str = "male", width: float = 20.0,
             "clearance": clearance,
             "bbox": entry["bbox"],
             "volume": entry["volume"],
-        }, indent=2)
+        }
+        response.update(exports)
+
+        return json.dumps(response, indent=2)
 
     except Exception as e:
         return json.dumps({"success": False, "error": str(e), "traceback": traceback.format_exc()}, indent=2)
@@ -1786,7 +1835,7 @@ def create_dovetail(name: str, dovetail_type: str = "male", width: float = 20.0,
 
 @mcp.tool()
 def generate_label(name: str, text: str, size: str = "[60, 20, 2]", font_size: float = 8.0,
-                    qr_data: str = "") -> str:
+                    qr_data: str = "", final: bool = True) -> str:
     """Generate a 3D-printable label with embossed text and optional QR code.
 
     Args:
@@ -1843,23 +1892,20 @@ def generate_label(name: str, text: str, size: str = "[60, 20, 2]", font_size: f
         entry = _shape_to_model_entry(result, code=f"label '{text}'")
         _models[name] = entry
 
-        # Export
-        model_dir = os.path.join(OUTPUT_DIR, name)
-        os.makedirs(model_dir, exist_ok=True)
-        from build123d import export_stl
-        stl_path = os.path.join(model_dir, f"{name}.stl")
-        export_stl(result, stl_path)
+        exports = _export_and_upload(name, result, final)
 
-        return json.dumps({
+        response = {
             "success": True,
             "name": name,
             "text": text,
             "size_mm": dims,
             "has_qr": bool(qr_data),
-            "stl_path": stl_path,
             "bbox": entry["bbox"],
             "volume": entry["volume"],
-        }, indent=2)
+        }
+        response.update(exports)
+
+        return json.dumps(response, indent=2)
 
     except Exception as e:
         return json.dumps({"success": False, "error": str(e), "traceback": traceback.format_exc()}, indent=2)

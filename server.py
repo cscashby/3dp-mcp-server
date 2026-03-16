@@ -168,7 +168,7 @@ def _compute_overhangs(shape, max_angle_deg: float = 45.0) -> dict:
 
 
 @mcp.tool()
-def create_model(name: str, code: str) -> str:
+def create_model(name: str, code: str, final: bool = True) -> str:
     """Create a 3D model by executing build123d Python code.
 
     The code MUST assign the final shape to a variable called `result`.
@@ -177,6 +177,9 @@ def create_model(name: str, code: str) -> str:
     Args:
         name: A short name for the model (used for file naming)
         code: build123d Python code that creates a shape and assigns it to `result`
+        final: Whether this is a final deliverable model (default True). Set to False
+               for interim/working models that will be combined or transformed later —
+               these are kept on local disk only and not uploaded to cloud storage.
 
     Returns:
         JSON with success status, geometry info (bounding box, volume), and output paths.
@@ -197,12 +200,13 @@ def create_model(name: str, code: str) -> str:
         export_stl(result["shape"], stl_path)
         export_step(result["shape"], step_path)
 
-        # Upload to GCS if configured
+        # Upload to cloud storage only for final models
         artifacts = []
-        for path, fname in [(stl_path, f"{name}.stl"), (step_path, f"{name}.step")]:
-            a = _upload_to_gcs(path, fname)
-            if a:
-                artifacts.append(a)
+        if final:
+            for path, fname in [(stl_path, f"{name}.stl"), (step_path, f"{name}.step")]:
+                a = _upload_to_gcs(path, fname)
+                if a:
+                    artifacts.append(a)
 
         response = {
             "success": True,
@@ -1199,7 +1203,7 @@ def create_threaded_hole(name: str, source_name: str, position: str, thread_spec
 def create_thread(name: str, thread_spec: str = "M3", length: float = 10.0,
                   external: bool = True, hand: str = "right",
                   end_finishes: str = '["fade", "square"]',
-                  simple: bool = False) -> str:
+                  simple: bool = False, final: bool = True) -> str:
     """Create an ISO metric thread using bd_warehouse.
 
     Generates real helical thread geometry — external threads for bolts/screws,
@@ -1214,6 +1218,9 @@ def create_thread(name: str, thread_spec: str = "M3", length: float = 10.0,
         hand: Thread direction - "right" or "left" (default "right")
         end_finishes: JSON list of [start, end] finish: "raw", "fade", "square", "chamfer" (default '["fade", "square"]')
         simple: If true, use simplified geometry for faster generation (default False)
+        final: Whether this is a final deliverable model (default True). Set to False
+               for interim/working models that will be combined later — these are kept
+               on local disk only and not uploaded to cloud storage.
     """
     spec = thread_spec.upper()
     if spec not in _ISO_THREAD_TABLE:
@@ -1251,10 +1258,11 @@ def create_thread(name: str, thread_spec: str = "M3", length: float = 10.0,
         export_step(result, step_path)
 
         artifacts = []
-        for path, fname in [(stl_path, f"{name}.stl"), (step_path, f"{name}.step")]:
-            a = _upload_to_gcs(path, fname)
-            if a:
-                artifacts.append(a)
+        if final:
+            for path, fname in [(stl_path, f"{name}.stl"), (step_path, f"{name}.step")]:
+                a = _upload_to_gcs(path, fname)
+                if a:
+                    artifacts.append(a)
 
         response = {
             "success": True,
